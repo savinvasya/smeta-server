@@ -38,7 +38,63 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
+from aiogram.filters import CommandStart
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
+@dp.message(CommandStart())
+async def cmd_start(message: Message):
+    text = (
+        "Добро пожаловать в <b>Калькулятор работ</b>! 👋\n\n"
+        "Это профессиональный инструмент для мастеров и строительных бригад. "
+        "Забудьте про сложные расчеты в Excel — приложение автоматически посчитает стоимость работ.\n\n"
+        "📦 <b>Что входит в приложение:</b>\n"
+        "• Укладка плитки (расчет по зонам, резка, затирка)\n"
+        "• Электромонтаж (по точкам и по метражу кабеля)\n"
+        "• Монтаж гипсокартона (каркасы, листы, подвесы)\n"
+        "• Сохранение смет, экспорт в PNG, гибкий прайс-лист.\n\n"
+        "💳 <b>Стоимость доступа:</b>\n"
+        "• 1 месяц — <b>499 ₽</b>\n"
+        "• 1 год — <b>4990 ₽</b>\n\n"
+        "🎁 <b>Пробный период: 14 дней абсолютно бесплатно!</b>\n\n"
+        "Нажмите кнопку ниже, чтобы начать работу 👇"
+    )
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🚀 Открыть калькулятор", web_app=WebAppInfo(url="https://savinvasya.github.io/Tile-calculator1/"))],
+        [InlineKeyboardButton(text="💳 Узнать про подписку", callback_data="show_prices")]
+    ])
+    
+    await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+
+@dp.callback_query(F.data == "show_prices")
+async def show_prices(callback):
+    text = (
+        "💳 <b>Подписка на Калькулятор работ</b>\n\n"
+        "Оплата принимается российскими картами и через СБП.\n\n"
+        "📅 <b>Тариф «1 месяц»</b> — 499 ₽\n"
+        "📅 <b>Тариф «1 год»</b> — 4990 ₽ (выгода 15%)\n\n"
+        "После оплаты доступ активируется автоматически."
+    )
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Оплатить 499 ₽ (1 месяц)", callback_data="buy_month")],
+        [InlineKeyboardButton(text="Оплатить 4990 ₽ (1 год)", callback_data="buy_year")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_start")]
+    ])
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    await callback.answer()
+
+@dp.callback_query(F.data == "back_to_start")
+async def back_to_start(callback):
+    await callback.message.delete()
+    await cmd_start(callback.message)
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("buy_"))
+async def buy_subscription_placeholder(callback):
+    await callback.answer(
+        "Оплата картой временно недоступна. Скоро подключим!",
+        show_alert=True
+    )
 @contextmanager
 def db():
     connection = sqlite3.connect(DB_PATH, timeout=15)
