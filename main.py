@@ -11,6 +11,8 @@ from pathlib import Path
 from urllib.parse import parse_qsl
 
 from aiogram import Bot, Dispatcher, F
+from aiogram.filters import Command, CommandStart
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 from aiogram.types import LabeledPrice, Message, PreCheckoutQuery, Update
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,6 +25,7 @@ BOT_TOKEN = os.environ["BOT_TOKEN"]
 WEBHOOK_SECRET = os.environ["WEBHOOK_SECRET"]
 PUBLIC_BASE_URL = os.environ["PUBLIC_BASE_URL"].rstrip("/")
 DB_PATH = os.getenv("DB_PATH", "users.db")
+ADMIN_ID = int(os.environ["ADMIN_ID"])
 MAX_AUTH_AGE = 24 * 60 * 60
 PLANS = {
     "month": {"stars": 700, "seconds": 30 * 86400, "title": "Доступ на 30 дней"},
@@ -38,8 +41,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-from aiogram.filters import CommandStart
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
 
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
@@ -58,13 +59,61 @@ async def cmd_start(message: Message):
         "🎁 <b>Пробный период: 14 дней абсолютно бесплатно!</b>\n\n"
         "Нажмите кнопку ниже, чтобы начать работу 👇"
     )
-    
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🚀 Открыть калькулятор", web_app=WebAppInfo(url="https://savinvasya.github.io/Tile-calculator1/"))],
         [InlineKeyboardButton(text="💳 Узнать про подписку", callback_data="show_prices")]
     ])
-    
+
     await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+
+@dp.message(Command("give_access"))
+async def give_access(message: Message):
+    if not message.from_user or message.from_user.id != ADMIN_ID:
+        return
+
+    args = (message.text or "").split()
+    if len(args) != 3:
+        await message.answer(
+            "❌ Использование: <code>/give_access ID_пользователя КОЛИЧЕСТВО_ДНЕЙ</code>\n\n"
+            "Пример: <code>/give_access 987654321 365</code>",
+            parse_mode="HTML",
+        )
+        return
+
+    try:
+        target_id = int(args[1])
+        days = int(args[2])
+    except ValueError:
+        await message.answer("❌ ID и количество дней должны быть целыми числами.")
+        return
+
+    if target_id <= 0 or days <= 0:
+        await message.answer("❌ ID пользователя и количество дней должны быть положительными числами.")
+        return
+
+    now = int(time.time())
+    end_date = now + days * 86400
+    try:
+        with db() as conn:
+            conn.execute(
+                """INSERT OR IGNORE INTO users(user_id, sub_end_date, username, trial_end_date)
+                   VALUES (?, ?, ?, ?)""",
+                (target_id, end_date, "AdminGranted", now),
+            )
+            conn.execute(
+                "UPDATE users SET sub_end_date = MAX(sub_end_date, ?) WHERE user_id = ?",
+                (end_date, target_id),
+            )
+    except Exception:
+        logger.exception("Failed to grant access to user %s", target_id)
+        await message.answer("❌ Не удалось выдать доступ. Проверьте журнал сервера.")
+        return
+
+    await message.answer(
+        f"✅ Пользователю <code>{target_id}</code> выдан доступ минимум на {days} дней от сегодняшней даты.",
+        parse_mode="HTML",
+    )
 
 @dp.callback_query(F.data == "show_prices")
 async def show_prices(callback):
@@ -95,6 +144,7 @@ async def buy_subscription_placeholder(callback):
         "Оплата картой временно недоступна. Скоро подключим!",
         show_alert=True
     )
+
 @contextmanager
 def db():
     connection = sqlite3.connect(DB_PATH, timeout=15)
@@ -223,7 +273,7 @@ async def successful_payment(message: Message):
 async def lifespan(app: FastAPI):
     init_db()
     await bot.set_webhook(f"{PUBLIC_BASE_URL}/telegram/webhook", secret_token=WEBHOOK_SECRET,
-                          allowed_updates=["message", "pre_checkout_query"])
+                          allowed_updates=["message", "pre_checkout_query", "callback_query"])
     try:
         yield
     finally:
