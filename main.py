@@ -176,7 +176,7 @@ def ensure_user(user: dict):
     now = int(time.time())
     with db() as conn:
         conn.execute("""INSERT OR IGNORE INTO users(user_id, sub_end_date, username, trial_end_date)
-                        VALUES (?, ?, ?, ?)""", (user["id"], now + 14 * 86400, user.get("username", ""), now + 14 * 86400))
+                        VALUES (?, ?, ?, ?)""", (user["id"], now + 0 * 86400, user.get("username", ""), now + 0 * 86400))
         conn.execute("UPDATE users SET username=? WHERE user_id=?", (user.get("username", ""), user["id"]))
         return conn.execute("SELECT sub_end_date, trial_end_date FROM users WHERE user_id=?", (user["id"],)).fetchone()
 
